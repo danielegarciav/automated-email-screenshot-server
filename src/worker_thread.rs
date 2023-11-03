@@ -14,6 +14,7 @@ use uiautomation::UIAutomation;
 use com::interfaces::IUnknown;
 use windows::core::Interface;
 use windows::Win32::Foundation::HWND;
+use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
   IUIAutomation, IUIAutomationElement, IUIAutomationPropertyChangedEventHandler, TreeScope_Element,
   UIA_ScrollPatternNoScroll as NoScroll, UIA_ScrollVerticalScrollPercentPropertyId,
@@ -43,7 +44,7 @@ com::interfaces! {
       &self,
       sender: *mut std::ffi::c_void,
       propertyid: AbiWrapper<UIA_PROPERTY_ID>,
-      newvalue: AbiWrapper<windows::Win32::System::Variant::VARIANT>,
+      newvalue: AbiWrapper<VARIANT>,
     ) -> ::windows::core::HRESULT;
   }
 }
@@ -52,8 +53,8 @@ com::class! {
   pub class EventHandler: IChangeEventHandler {}
 
   impl IChangeEventHandler for EventHandler {
-    fn HandlePropertyChangedEvent(&self, _sender: *mut std::ffi::c_void, _propertyid: AbiWrapper<UIA_PROPERTY_ID>, _newvalue: AbiWrapper<windows::Win32::System::Variant::VARIANT>) -> windows::core::HRESULT {
-      let new_scroll_value = unsafe { _newvalue.0.Anonymous.Anonymous.Anonymous.dblVal };
+    fn HandlePropertyChangedEvent(&self, _sender: *mut std::ffi::c_void, _propertyid: AbiWrapper<UIA_PROPERTY_ID>, newvalue: AbiWrapper<VARIANT>) -> windows::core::HRESULT {
+      let new_scroll_value = unsafe { newvalue.0.Anonymous.Anonymous.Anonymous.dblVal };
       tracing::debug!("scroll event: {}", new_scroll_value);
       windows::core::Result::Ok(()).into()
     }
@@ -72,8 +73,10 @@ pub fn start_worker_thread(
   mut task_receiver: tokio::sync::mpsc::Receiver<EmlTask>,
 ) -> anyhow::Result<()> {
   let automation = UIAutomation::new()?;
-  let h = EventHandler::allocate();
-  let hh = unsafe { IUIAutomationPropertyChangedEventHandler::from_raw(std::mem::transmute(h)) };
+  let com_event_handler_alloc = EventHandler::allocate();
+  let com_event_handler = unsafe {
+    IUIAutomationPropertyChangedEventHandler::from_raw(std::mem::transmute(com_event_handler_alloc))
+  };
 
   loop {
     match task_receiver.blocking_recv() {
@@ -84,7 +87,7 @@ pub fn start_worker_thread(
       Some(task) => {
         let _span_guard = task.span.map(|span| span.entered());
         let response = task.response;
-        let result = perform_email_screenshot(&automation, hh.clone());
+        let result = perform_email_screenshot(&automation, &com_event_handler);
         response.send(result).unwrap();
       }
     }
@@ -94,7 +97,7 @@ pub fn start_worker_thread(
 
 fn perform_email_screenshot(
   automation: &UIAutomation,
-  h: IUIAutomationPropertyChangedEventHandler,
+  scroll_event_handler: &IUIAutomationPropertyChangedEventHandler,
 ) -> anyhow::Result<DynamicImage> {
   tracing::debug!("starting screenshot routine...");
   let outer_window_element = automation
@@ -131,7 +134,7 @@ fn perform_email_screenshot(
       &el,
       TreeScope_Element,
       None,
-      &h,
+      scroll_event_handler,
       &[UIA_ScrollVerticalScrollPercentPropertyId],
     )
     .unwrap();
