@@ -1,6 +1,8 @@
 #![allow(non_snake_case)]
 
 use anyhow::Context;
+use std::path::PathBuf;
+use std::process::Command;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -103,9 +105,21 @@ pub fn start_worker_thread(
   mut task_receiver: tokio::sync::mpsc::Receiver<EmlTask>,
 ) -> anyhow::Result<()> {
   init_dpi_awareness()?;
+
+  let eml_directory = {
+    let mut cwd = std::env::current_dir()?;
+    cwd.push("eml");
+    cwd
+  };
+  let eml_file_path = {
+    let mut path = eml_directory.clone();
+    path.push("currently-testing.eml");
+    path
+  };
+  std::fs::create_dir_all(eml_directory)?;
+
   let automation = UIAutomation::new()?;
   let scroll_sync_channel = Arc::new(SyncChannel::new());
-
   let com_event_handler_alloc = ScrollEventHandler {
     scroll_sync_channel: scroll_sync_channel.clone(),
   };
@@ -120,8 +134,13 @@ pub fn start_worker_thread(
       Some(task) => {
         let _span_guard = task.span.map(|span| span.entered());
         let response = task.response;
-        let result =
-          perform_email_screenshot(&automation, &com_event_handler, &scroll_sync_channel);
+        std::fs::write(&eml_file_path, task.eml_content).unwrap();
+        let result = perform_email_screenshot(
+          &automation,
+          &eml_file_path,
+          &com_event_handler,
+          &scroll_sync_channel,
+        );
         response.send(result).unwrap();
       }
     }
@@ -131,22 +150,29 @@ pub fn start_worker_thread(
 
 fn perform_email_screenshot(
   automation: &UIAutomation,
+  eml_file_path: &PathBuf,
   scroll_event_handler: &IUIAutomationPropertyChangedEventHandler,
   scroll_sync_channel: &SyncChannel,
 ) -> anyhow::Result<DynamicImage> {
-  tracing::debug!("starting screenshot routine...");
+  tracing::info!("launching mail app...");
+  Command::new("explorer.exe").arg(eml_file_path).status()?;
+
+  tracing::info!("finding outer window...");
   let outer_window_element = automation
     .create_matcher()
     .name("Mail")
     .timeout(10000)
     .find_first()?;
 
+  tracing::info!("resizing outer window...");
   let outer_window_control: WindowControl = outer_window_element.try_into()?;
+  dbg!(outer_window_control.get_window_interaction_state()?);
   outer_window_control.set_foregrand()?;
   outer_window_control.normal()?;
   outer_window_control.resize(1600.0, 1432.0)?;
   thread::sleep(Duration::from_millis(1500));
 
+  tracing::info!("finding inner window...");
   let window_element = automation
     .create_matcher()
     .name("Mail")
@@ -155,6 +181,7 @@ fn perform_email_screenshot(
     .find_first()?;
   let window_handle: HWND = window_element.get_native_window_handle()?.into();
   let window_rect = window_element.get_bounding_rectangle()?;
+  thread::sleep(Duration::from_millis(1500));
 
   let viewport_element = automation
     .create_matcher()
@@ -189,7 +216,7 @@ fn perform_email_screenshot(
   let viewport_control: DocumentControl = viewport_element.try_into()?;
   viewport_control.set_scroll_percent(NoScroll, 0.0)?;
   scroll_sync_channel.wait();
-  thread::sleep(Duration::from_millis(350));
+  thread::sleep(Duration::from_millis(500));
 
   let viewport_height_percentage = viewport_control.get_vertical_view_size()? / 100.0;
   let document_height = f64::round(viewport_height as f64 / viewport_height_percentage) as i32;
@@ -239,7 +266,7 @@ fn perform_email_screenshot(
     tracing::info!("scrolling...");
     viewport_control.set_scroll_percent(NoScroll, next_scroll_percent * 100.0)?;
     scroll_sync_channel.wait();
-    thread::sleep(Duration::from_millis(350));
+    thread::sleep(Duration::from_millis(500));
 
     let scroll_difference = next_scroll_height - scroll_height;
     let overlapping_height = viewport_height - bottom_margin - scroll_difference;
@@ -292,5 +319,7 @@ fn perform_email_screenshot(
     .map_err(|msg| anyhow::anyhow!(msg))?;
 
   unsafe { a.RemoveAllEventHandlers()? }
+  tracing::info!("closing window now");
+  outer_window_control.close()?;
   Ok(stitched_image)
 }

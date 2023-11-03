@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = { version = "1.0.75", features = ["backtrace"] }
 axum = { version = "0.6.20", features = ["tracing", "multipart", "headers"] }
+axum_typed_multipart = "0.10.1"
 image = "0.24.7"
 stitchy-core = "0.1.0"
 tokio = { version = "1.33.0", features = ["full", "tracing"] }

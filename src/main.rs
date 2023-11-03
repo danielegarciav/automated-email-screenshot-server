@@ -4,12 +4,14 @@ pub(crate) mod eml_task;
 pub(crate) mod worker_thread;
 
 use axum::{
-  extract::{MatchedPath, Multipart, State},
+  body::Bytes,
+  extract::{MatchedPath, State},
   http::{header, Request, StatusCode},
   response::{IntoResponse, Response},
   routing::post,
   Router,
 };
+use axum_typed_multipart::{TryFromMultipart, TypedMultipart};
 use std::net::SocketAddr;
 use tower_http::cors::{self, CorsLayer};
 
@@ -74,17 +76,21 @@ async fn main() -> anyhow::Result<()> {
   Ok(())
 }
 
-async fn render_eml(State(state): State<AppState>, mut multipart: Multipart) -> Response {
-  while let Some(field) = multipart.next_field().await.unwrap() {
-    let name = field.name().unwrap().to_string();
-    let data = field.bytes().await.unwrap();
-    tracing::info!("Length of `{}` is {} bytes", name, data.len());
-  }
+#[derive(TryFromMultipart)]
+struct RenderEmlInput {
+  eml: Bytes,
+}
+
+async fn render_eml(
+  State(state): State<AppState>,
+  data: TypedMultipart<RenderEmlInput>,
+) -> Response {
+  tracing::info!("Length of eml is {} bytes", data.eml.len());
 
   let (result_sender, result_receiver) = oneshot::channel();
 
   let task = EmlTask {
-    eml_content: "".into(),
+    eml_content: data.eml.clone(),
     response: result_sender,
     span: Some(tracing::Span::current()),
   };
