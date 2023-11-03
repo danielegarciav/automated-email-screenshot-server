@@ -1,0 +1,36 @@
+[package]
+name = "automation-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { version = "1.0.75", features = ["backtrace"] }
+axum = { version = "0.6.20", features = ["tracing", "multipart", "headers"] }
+image = "0.24.7"
+stitchy-core = "0.1.0"
+tokio = { version = "1.33.0", features = ["full", "tracing"] }
+tokio-util = { version = "0.7.10", features = ["io", "io-util"] }
+tower-http = { version = "0.4.4", features = ["cors", "trace"] }
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+uiautomation = "0.7.1"
+win-screenshot = "4.0.5"
+windows = { version = "0.51.1", features = [
+  "Win32_Graphics_Dwm",
+  "Win32_Foundation",
+  "Win32_UI_Accessibility",
+  "Win32_UI_HiDpi",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_System_Com",
+  "Win32_System_Threading",
+  "Win32_Storage_FileSystem",
+  "Win32_System_ProcessStatus",
+] }
+
+# Enable a small amount of optimization in debug mode
+# [profile.dev]
+# opt-level = 1
+
+# Enable high optimizations for dependencies, but not for our code:
+[profile.dev.package."*"]
+opt-level = 3
