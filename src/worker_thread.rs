@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 
 use anyhow::Context;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -9,14 +10,14 @@ use win_screenshot::capture::capture_window_ex;
 
 use uiautomation::actions::{Scroll, Transform, Window};
 use uiautomation::controls::{ControlType, DocumentControl, WindowControl};
-use uiautomation::UIAutomation;
+use uiautomation::{UIAutomation, UIElement};
 
-use com::interfaces::IUnknown;
-use windows::core::Interface;
+use variant_rs::*;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
-  IUIAutomation, IUIAutomationElement, IUIAutomationPropertyChangedEventHandler, TreeScope_Element,
+  IUIAutomation, IUIAutomationElement, IUIAutomationPropertyChangedEventHandler,
+  IUIAutomationPropertyChangedEventHandler_Impl, TreeScope_Element,
   UIA_ScrollPatternNoScroll as NoScroll, UIA_ScrollVerticalScrollPercentPropertyId,
   UIA_PROPERTY_ID,
 };
@@ -24,44 +25,39 @@ use windows::Win32::UI::HiDpi;
 
 use crate::eml_task::EmlTask;
 
-#[repr(transparent)]
-#[derive(Copy, Clone, Debug)]
-struct AbiWrapper<T: Clone>(T);
-unsafe impl<T: Clone> com::AbiTransferable for AbiWrapper<T> {
-  type Abi = T;
-  fn get_abi(&self) -> Self::Abi {
-    self.0.clone()
-  }
-  fn set_abi(&mut self) -> *mut Self::Abi {
-    &mut self.0
+#[windows_implement::implement(IUIAutomationPropertyChangedEventHandler)]
+struct ScrollEventHandler {
+  scroll_sync_channel: Arc<SyncChannel>,
+}
+
+impl IUIAutomationPropertyChangedEventHandler_Impl for ScrollEventHandler {
+  fn HandlePropertyChangedEvent(
+    &self,
+    _sender: Option<&IUIAutomationElement>,
+    _propertyid: UIA_PROPERTY_ID,
+    newvalue: &VARIANT,
+  ) -> ::windows::core::Result<()> {
+    let win_variant: variant_rs::VARIANT = unsafe { std::mem::transmute(newvalue.clone()) };
+    let rs_variant: Variant = win_variant.try_into().unwrap();
+    let new_scroll_value = rs_variant.expect_f64();
+
+    let el: UIElement = _sender.unwrap().clone().into();
+    let pid = el.get_process_id().unwrap();
+
+    self.scroll_sync_channel.notify();
+
+    tracing::debug!(
+      "scroll event: {}, prop id: {:?}, sender: {:?}, pid: {}",
+      new_scroll_value,
+      _propertyid,
+      el,
+      pid,
+    );
+    windows::core::Result::Ok(())
   }
 }
 
-com::interfaces! {
-  #[uuid("40CD37D4-C756-4B0C-8C6F-BDDFEEB13B50")]
-  unsafe interface IChangeEventHandler: IUnknown {
-    fn HandlePropertyChangedEvent(
-      &self,
-      sender: *mut std::ffi::c_void,
-      propertyid: AbiWrapper<UIA_PROPERTY_ID>,
-      newvalue: AbiWrapper<VARIANT>,
-    ) -> ::windows::core::HRESULT;
-  }
-}
-
-com::class! {
-  pub class EventHandler: IChangeEventHandler {}
-
-  impl IChangeEventHandler for EventHandler {
-    fn HandlePropertyChangedEvent(&self, _sender: *mut std::ffi::c_void, _propertyid: AbiWrapper<UIA_PROPERTY_ID>, newvalue: AbiWrapper<VARIANT>) -> windows::core::HRESULT {
-      let new_scroll_value = unsafe { newvalue.0.Anonymous.Anonymous.Anonymous.dblVal };
-      tracing::debug!("scroll event: {}", new_scroll_value);
-      windows::core::Result::Ok(()).into()
-    }
-  }
-}
-
-pub fn init_dpi_awareness() -> anyhow::Result<()> {
+fn init_dpi_awareness() -> anyhow::Result<()> {
   unsafe {
     HiDpi::SetProcessDpiAwarenessContext(HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)?;
     thread::sleep(Duration::from_millis(30));
@@ -69,14 +65,52 @@ pub fn init_dpi_awareness() -> anyhow::Result<()> {
   Ok(())
 }
 
+struct SyncChannel {
+  is_waiting: Mutex<bool>,
+  cond_var: Condvar,
+}
+
+impl SyncChannel {
+  fn new() -> Self {
+    Self {
+      is_waiting: Mutex::new(false),
+      cond_var: Condvar::new(),
+    }
+  }
+  fn wait(&self) {
+    *self.is_waiting.lock().unwrap() = true;
+    let (_guard, result) = self
+      .cond_var
+      .wait_timeout_while(
+        self.is_waiting.lock().unwrap(),
+        Duration::from_millis(10_000),
+        |is_waiting| *is_waiting,
+      )
+      .unwrap();
+
+    if result.timed_out() {
+      tracing::warn!("waiting timed out! (10 seconds)");
+    }
+  }
+
+  fn notify(&self) {
+    let mut is_waiting = self.is_waiting.lock().unwrap();
+    *is_waiting = false;
+    self.cond_var.notify_all();
+  }
+}
+
 pub fn start_worker_thread(
   mut task_receiver: tokio::sync::mpsc::Receiver<EmlTask>,
 ) -> anyhow::Result<()> {
+  init_dpi_awareness()?;
   let automation = UIAutomation::new()?;
-  let com_event_handler_alloc = EventHandler::allocate();
-  let com_event_handler = unsafe {
-    IUIAutomationPropertyChangedEventHandler::from_raw(std::mem::transmute(com_event_handler_alloc))
+  let scroll_sync_channel = Arc::new(SyncChannel::new());
+
+  let com_event_handler_alloc = ScrollEventHandler {
+    scroll_sync_channel: scroll_sync_channel.clone(),
   };
+  let com_event_handler: IUIAutomationPropertyChangedEventHandler = com_event_handler_alloc.into();
 
   loop {
     match task_receiver.blocking_recv() {
@@ -87,7 +121,8 @@ pub fn start_worker_thread(
       Some(task) => {
         let _span_guard = task.span.map(|span| span.entered());
         let response = task.response;
-        let result = perform_email_screenshot(&automation, &com_event_handler);
+        let result =
+          perform_email_screenshot(&automation, &com_event_handler, &scroll_sync_channel);
         response.send(result).unwrap();
       }
     }
@@ -98,6 +133,7 @@ pub fn start_worker_thread(
 fn perform_email_screenshot(
   automation: &UIAutomation,
   scroll_event_handler: &IUIAutomationPropertyChangedEventHandler,
+  scroll_sync_channel: &SyncChannel,
 ) -> anyhow::Result<DynamicImage> {
   tracing::debug!("starting screenshot routine...");
   let outer_window_element = automation
@@ -153,7 +189,8 @@ fn perform_email_screenshot(
   tracing::info!("rewinding viewport to top...");
   let viewport_control: DocumentControl = viewport_element.try_into()?;
   viewport_control.set_scroll_percent(NoScroll, 0.0)?;
-  thread::sleep(Duration::from_millis(750));
+  scroll_sync_channel.wait();
+  thread::sleep(Duration::from_millis(500));
 
   let viewport_height_percentage = viewport_control.get_vertical_view_size()? / 100.0;
   let document_height = f64::round(viewport_height as f64 / viewport_height_percentage) as i32;
@@ -202,7 +239,8 @@ fn perform_email_screenshot(
 
     tracing::info!("scrolling...");
     viewport_control.set_scroll_percent(NoScroll, next_scroll_percent * 100.0)?;
-    thread::sleep(Duration::from_millis(1000));
+    scroll_sync_channel.wait();
+    thread::sleep(Duration::from_millis(500));
 
     let scroll_difference = next_scroll_height - scroll_height;
     let overlapping_height = viewport_height - bottom_margin - scroll_difference;

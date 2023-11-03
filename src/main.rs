@@ -17,7 +17,7 @@ use tower_http::trace::TraceLayer;
 use tracing::info_span;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::worker_thread::{init_dpi_awareness, start_worker_thread};
+use crate::worker_thread::start_worker_thread;
 use eml_task::EmlTask;
 use tokio::sync::{mpsc, oneshot};
 
@@ -28,7 +28,6 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-  init_dpi_awareness()?;
   tracing_subscriber::registry()
     .with(
       tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {

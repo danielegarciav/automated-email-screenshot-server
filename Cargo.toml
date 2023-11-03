@@ -16,8 +16,10 @@ tower-http = { version = "0.4.4", features = ["cors", "trace"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 uiautomation = "0.7.1"
+variant-rs = "0.3.1"
 win-screenshot = "4.0.5"
 windows = { version = "0.51.1", features = [
+  "implement",
   "Win32_Graphics_Dwm",
   "Win32_Foundation",
   "Win32_UI_Accessibility",
@@ -30,6 +32,7 @@ windows = { version = "0.51.1", features = [
   "Win32_Storage_FileSystem",
   "Win32_System_ProcessStatus",
 ] }
+windows-implement = "0.51.1"
 
 # Enable a small amount of optimization in debug mode
 # [profile.dev]
