@@ -146,7 +146,7 @@ fn perform_email_screenshot(
   outer_window_control.set_foregrand()?;
   outer_window_control.normal()?;
   outer_window_control.resize(1600.0, 1432.0)?;
-  thread::sleep(Duration::from_millis(2000));
+  thread::sleep(Duration::from_millis(1500));
 
   let window_element = automation
     .create_matcher()
@@ -190,7 +190,7 @@ fn perform_email_screenshot(
   let viewport_control: DocumentControl = viewport_element.try_into()?;
   viewport_control.set_scroll_percent(NoScroll, 0.0)?;
   scroll_sync_channel.wait();
-  thread::sleep(Duration::from_millis(500));
+  thread::sleep(Duration::from_millis(350));
 
   let viewport_height_percentage = viewport_control.get_vertical_view_size()? / 100.0;
   let document_height = f64::round(viewport_height as f64 / viewport_height_percentage) as i32;
@@ -240,7 +240,7 @@ fn perform_email_screenshot(
     tracing::info!("scrolling...");
     viewport_control.set_scroll_percent(NoScroll, next_scroll_percent * 100.0)?;
     scroll_sync_channel.wait();
-    thread::sleep(Duration::from_millis(500));
+    thread::sleep(Duration::from_millis(350));
 
     let scroll_difference = next_scroll_height - scroll_height;
     let overlapping_height = viewport_height - bottom_margin - scroll_difference;
