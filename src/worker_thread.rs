@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 
 use anyhow::Context;
-use std::ptr::NonNull;
 use std::thread;
 use std::time::Duration;
 
@@ -12,54 +11,17 @@ use uiautomation::actions::{Scroll, Transform, Window};
 use uiautomation::controls::{ControlType, DocumentControl, WindowControl};
 use uiautomation::UIAutomation;
 
-use windows::core::{ComInterface, Interface};
+use com::interfaces::IUnknown;
+use windows::core::Interface;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Accessibility::{
-  IUIAutomation, TreeScope_Element, UIA_ScrollPatternNoScroll as NoScroll,
-};
-use windows::Win32::UI::Accessibility::{
-  IUIAutomationElement, IUIAutomationPropertyChangedEventHandler,
-};
-use windows::Win32::UI::Accessibility::{
-  UIA_ScrollVerticalScrollPercentPropertyId, UIA_PROPERTY_ID,
+  IUIAutomation, IUIAutomationElement, IUIAutomationPropertyChangedEventHandler, TreeScope_Element,
+  UIA_ScrollPatternNoScroll as NoScroll, UIA_ScrollVerticalScrollPercentPropertyId,
+  UIA_PROPERTY_ID,
 };
 use windows::Win32::UI::HiDpi;
 
 use crate::eml_task::EmlTask;
-
-#[allow(non_snake_case)]
-#[allow(non_camel_case_types)]
-#[allow(dead_code)]
-struct IChangeEventHandler_Vtbl {
-  pub parent: com::interfaces::iunknown::IUnknownVTable,
-  pub HandlePropertyChangedEvent: unsafe extern "system" fn(
-    this: NonNull<NonNull<IChangeEventHandler_Vtbl>>,
-    sender: *mut std::ffi::c_void,
-    propertyid: UIA_PROPERTY_ID,
-    newvalue: windows::Win32::System::Variant::VARIANT,
-  ) -> ::windows::core::HRESULT,
-}
-
-struct IChangeEventHandler(IUIAutomationPropertyChangedEventHandler);
-unsafe impl com::Interface for IChangeEventHandler {
-  type VTable = IChangeEventHandler_Vtbl;
-  type Super = com::interfaces::IUnknown;
-
-  const IID: com::IID =
-    unsafe { std::mem::transmute(IUIAutomationPropertyChangedEventHandler::IID) };
-
-  fn is_iid_in_inheritance_chain(riid: &com::IID) -> bool {
-    riid == &Self::IID
-      || (Self::IID != <com::interfaces::IUnknown as com::Interface>::IID
-        && <Self::Super as com::Interface>::is_iid_in_inheritance_chain(riid))
-  }
-  fn as_iunknown(&self) -> &com::interfaces::IUnknown {
-    unsafe { std::mem::transmute(self.0.as_unknown()) }
-  }
-  fn as_raw(&self) -> NonNull<NonNull<Self::VTable>> {
-    unsafe { std::mem::transmute(self.0.as_raw()) }
-  }
-}
 
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug)]
@@ -71,6 +33,18 @@ unsafe impl<T: Clone> com::AbiTransferable for AbiWrapper<T> {
   }
   fn set_abi(&mut self) -> *mut Self::Abi {
     &mut self.0
+  }
+}
+
+com::interfaces! {
+  #[uuid("40CD37D4-C756-4B0C-8C6F-BDDFEEB13B50")]
+  unsafe interface IChangeEventHandler: IUnknown {
+    fn HandlePropertyChangedEvent(
+      &self,
+      sender: *mut std::ffi::c_void,
+      propertyid: AbiWrapper<UIA_PROPERTY_ID>,
+      newvalue: AbiWrapper<windows::Win32::System::Variant::VARIANT>,
+    ) -> ::windows::core::HRESULT;
   }
 }
 
