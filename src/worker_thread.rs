@@ -12,7 +12,6 @@ use uiautomation::actions::{Scroll, Transform, Window};
 use uiautomation::controls::{ControlType, DocumentControl, WindowControl};
 use uiautomation::{UIAutomation, UIElement};
 
-use variant_rs::*;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
@@ -38,7 +37,7 @@ impl IUIAutomationPropertyChangedEventHandler_Impl for ScrollEventHandler {
     newvalue: &VARIANT,
   ) -> ::windows::core::Result<()> {
     let win_variant: variant_rs::VARIANT = unsafe { std::mem::transmute(newvalue.clone()) };
-    let rs_variant: Variant = win_variant.try_into().unwrap();
+    let rs_variant: variant_rs::Variant = win_variant.try_into().unwrap();
     let new_scroll_value = rs_variant.expect_f64();
 
     let el: UIElement = _sender.unwrap().clone().into();
