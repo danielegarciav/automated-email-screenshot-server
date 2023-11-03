@@ -1,4 +1,7 @@
+#![allow(non_snake_case)]
+
 use anyhow::Context;
+use std::ptr::NonNull;
 use std::thread;
 use std::time::Duration;
 
@@ -9,11 +12,79 @@ use uiautomation::actions::{Scroll, Transform, Window};
 use uiautomation::controls::{ControlType, DocumentControl, WindowControl};
 use uiautomation::UIAutomation;
 
+use windows::core::{ComInterface, Interface};
 use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::Accessibility::UIA_ScrollPatternNoScroll as NoScroll;
+use windows::Win32::UI::Accessibility::{
+  IUIAutomation, TreeScope_Element, UIA_ScrollPatternNoScroll as NoScroll,
+};
+use windows::Win32::UI::Accessibility::{
+  IUIAutomationElement, IUIAutomationPropertyChangedEventHandler,
+};
+use windows::Win32::UI::Accessibility::{
+  UIA_ScrollVerticalScrollPercentPropertyId, UIA_PROPERTY_ID,
+};
 use windows::Win32::UI::HiDpi;
 
 use crate::eml_task::EmlTask;
+
+#[allow(non_snake_case)]
+#[allow(non_camel_case_types)]
+#[allow(dead_code)]
+struct IChangeEventHandler_Vtbl {
+  pub parent: com::interfaces::iunknown::IUnknownVTable,
+  pub HandlePropertyChangedEvent: unsafe extern "system" fn(
+    this: NonNull<NonNull<IChangeEventHandler_Vtbl>>,
+    sender: *mut std::ffi::c_void,
+    propertyid: UIA_PROPERTY_ID,
+    newvalue: windows::Win32::System::Variant::VARIANT,
+  ) -> ::windows::core::HRESULT,
+}
+
+struct IChangeEventHandler(IUIAutomationPropertyChangedEventHandler);
+unsafe impl com::Interface for IChangeEventHandler {
+  type VTable = IChangeEventHandler_Vtbl;
+  type Super = com::interfaces::IUnknown;
+
+  const IID: com::IID =
+    unsafe { std::mem::transmute(IUIAutomationPropertyChangedEventHandler::IID) };
+
+  fn is_iid_in_inheritance_chain(riid: &com::IID) -> bool {
+    riid == &Self::IID
+      || (Self::IID != <com::interfaces::IUnknown as com::Interface>::IID
+        && <Self::Super as com::Interface>::is_iid_in_inheritance_chain(riid))
+  }
+  fn as_iunknown(&self) -> &com::interfaces::IUnknown {
+    unsafe { std::mem::transmute(self.0.as_unknown()) }
+  }
+  fn as_raw(&self) -> NonNull<NonNull<Self::VTable>> {
+    unsafe { std::mem::transmute(self.0.as_raw()) }
+  }
+}
+
+#[repr(transparent)]
+#[derive(Copy, Clone, Debug)]
+struct AbiWrapper<T: Clone>(T);
+unsafe impl<T: Clone> com::AbiTransferable for AbiWrapper<T> {
+  type Abi = T;
+  fn get_abi(&self) -> Self::Abi {
+    self.0.clone()
+  }
+  fn set_abi(&mut self) -> *mut Self::Abi {
+    &mut self.0
+  }
+}
+
+com::class! {
+  pub class EventHandler: IChangeEventHandler {}
+
+  impl IChangeEventHandler for EventHandler {
+    fn HandlePropertyChangedEvent(&self, _sender: *mut std::ffi::c_void, _propertyid: AbiWrapper<UIA_PROPERTY_ID>, _newvalue: AbiWrapper<windows::Win32::System::Variant::VARIANT>) -> windows::core::HRESULT {
+      let new_scroll_value = unsafe { _newvalue.0.Anonymous.Anonymous.Anonymous.dblVal };
+      tracing::debug!("scroll event: {}", new_scroll_value);
+      windows::core::Result::Ok(()).into()
+    }
+  }
+}
 
 pub fn init_dpi_awareness() -> anyhow::Result<()> {
   unsafe {
@@ -27,6 +98,9 @@ pub fn start_worker_thread(
   mut task_receiver: tokio::sync::mpsc::Receiver<EmlTask>,
 ) -> anyhow::Result<()> {
   let automation = UIAutomation::new()?;
+  let h = EventHandler::allocate();
+  let hh = unsafe { IUIAutomationPropertyChangedEventHandler::from_raw(std::mem::transmute(h)) };
+
   loop {
     match task_receiver.blocking_recv() {
       None => {
@@ -36,7 +110,7 @@ pub fn start_worker_thread(
       Some(task) => {
         let _span_guard = task.span.map(|span| span.entered());
         let response = task.response;
-        let result = perform_email_screenshot(&automation);
+        let result = perform_email_screenshot(&automation, hh.clone());
         response.send(result).unwrap();
       }
     }
@@ -44,7 +118,10 @@ pub fn start_worker_thread(
   }
 }
 
-fn perform_email_screenshot(automation: &UIAutomation) -> anyhow::Result<DynamicImage> {
+fn perform_email_screenshot(
+  automation: &UIAutomation,
+  h: IUIAutomationPropertyChangedEventHandler,
+) -> anyhow::Result<DynamicImage> {
   tracing::debug!("starting screenshot routine...");
   let outer_window_element = automation
     .create_matcher()
@@ -72,6 +149,19 @@ fn perform_email_screenshot(automation: &UIAutomation) -> anyhow::Result<Dynamic
     .from(window_element)
     .control_type(ControlType::Document)
     .find_first()?;
+
+  let a: IUIAutomation = automation.clone().into();
+  let el: IUIAutomationElement = viewport_element.clone().into();
+  unsafe {
+    a.AddPropertyChangedEventHandlerNativeArray(
+      &el,
+      TreeScope_Element,
+      None,
+      &h,
+      &[UIA_ScrollVerticalScrollPercentPropertyId],
+    )
+    .unwrap();
+  }
 
   let viewport_rect = viewport_element.get_bounding_rectangle()?;
 
@@ -186,5 +276,7 @@ fn perform_email_screenshot(automation: &UIAutomation) -> anyhow::Result<Dynamic
     .height_limit(4096)
     .stitch()
     .map_err(|msg| anyhow::anyhow!(msg))?;
+
+  unsafe { a.RemoveAllEventHandlers()? }
   Ok(stitched_image)
 }

@@ -1,3 +1,5 @@
+#![allow(unused_attributes)]
+
 pub(crate) mod eml_task;
 pub(crate) mod worker_thread;
 
