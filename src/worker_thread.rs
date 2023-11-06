@@ -250,7 +250,7 @@ fn perform_email_screenshot(
   let mut screenshot_count = 1;
 
   loop {
-    if scroll_percent >= 1.0 {
+    if viewport_height_percentage == 1.0 || scroll_percent >= 1.0 {
       break;
     }
 
