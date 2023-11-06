@@ -212,16 +212,18 @@ fn perform_email_screenshot(
   let viewport_right = viewport_rect.get_right() - window_rect.get_left();
   let viewport_width = viewport_right - viewport_left;
 
-  tracing::info!("rewinding viewport to top...");
   let viewport_control: DocumentControl = viewport_element.try_into()?;
-  viewport_control.set_scroll_percent(NoScroll, 0.0)?;
-  scroll_sync_channel.wait();
-  thread::sleep(Duration::from_millis(500));
-
   let viewport_height_percentage = viewport_control.get_vertical_view_size()? / 100.0;
   let document_height = f64::round(viewport_height as f64 / viewport_height_percentage) as i32;
   let max_scroll_height = document_height - viewport_height;
   tracing::debug!(viewport_height, document_height, max_scroll_height);
+
+  if viewport_control.get_vertical_scroll_percent()? > 0.0 && viewport_height_percentage < 1.0 {
+    tracing::info!("rewinding viewport to top...");
+    viewport_control.set_scroll_percent(NoScroll, 0.0)?;
+    scroll_sync_channel.wait();
+    thread::sleep(Duration::from_millis(500));
+  }
 
   let bottom_margin = match document_height > viewport_height {
     true => 32,
