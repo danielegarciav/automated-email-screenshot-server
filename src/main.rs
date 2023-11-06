@@ -38,7 +38,10 @@ async fn main() -> anyhow::Result<()> {
         "info,automation_test=debug,tower_http=debug,axum=debug".into()
       }),
     )
-    .with(tracing_subscriber::fmt::layer())
+    .with(
+      tracing_subscriber::fmt::layer()
+        .event_format(tracing_subscriber::fmt::format().with_line_number(true)),
+    )
     .init();
 
   let (task_sender, task_receiver) = mpsc::channel(12);
