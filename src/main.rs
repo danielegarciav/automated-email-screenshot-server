@@ -87,7 +87,6 @@ async fn render_eml(
   data: TypedMultipart<RenderEmlInput>,
 ) -> AppResult<Response> {
   tracing::info!("Length of eml is {} bytes", data.eml.len());
-
   let result_receiver = match state.task_manager.enqueue_task(data.eml.clone()) {
     Ok(x) => x,
     Err(err) => match err {
@@ -96,40 +95,11 @@ async fn render_eml(
       }
     },
   };
-
   let eml_result = result_receiver.await?;
-
   let raw_image = eml_result?;
-
   let headers = [(header::CONTENT_TYPE, "image/jpeg")];
 
   tracing::info!("encoding image...");
-
-  // method 1
-  // pros: uses less memory (encoding output goes straight to network)
-  // cons: takes longer (5 seconds)
-
-  // let (image_send, image_receive) = tokio::io::duplex(usize::pow(2, 16));
-  // let image_send_sync = tokio_util::io::SyncIoBridge::new(image_send);
-  // let span = tracing::Span::current();
-  // tokio::task::spawn_blocking(move || {
-  //   let _span_guard = span.enter();
-  //   let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(image_send_sync, 50);
-  //   if let Err(err) = raw_image.write_with_encoder(encoder) {
-  //     tracing::error!("failed to encode image, {:?}", err);
-  //   } else {
-  //     tracing::info!("image encoded successfully")
-  //   }
-  // });
-  // let reader_stream = tokio_util::io::ReaderStream::new(image_receive);
-  // let stream = reader_stream;
-  // let body = StreamBody::new(stream);
-  // (headers, body).into_response()
-
-  // method 2
-  // pros: faster (3 seconds)
-  // cons: uses more memory (encoding output is entirely buffered before sending)
-
   let span = tracing::Span::current();
   let jpeg = tokio::task::spawn_blocking(move || {
     let _span_guard = span.enter();
