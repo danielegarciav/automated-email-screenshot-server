@@ -1,5 +1,3 @@
-#![allow(unused_attributes)]
-
 mod app_result;
 pub(crate) mod eml_task;
 mod graceful_shutdown;
