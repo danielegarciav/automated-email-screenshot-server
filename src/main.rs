@@ -1,8 +1,11 @@
 #![allow(unused_attributes)]
 
+mod app_result;
 pub(crate) mod eml_task;
 mod graceful_shutdown;
 pub(crate) mod worker_thread;
+
+use app_result::AppResult;
 
 use axum::{
   body::Bytes,
@@ -79,30 +82,24 @@ struct RenderEmlInput {
   eml: Bytes,
 }
 
-async fn render_eml(State(state): State<AppState>, data: TypedMultipart<RenderEmlInput>) -> Response {
+async fn render_eml(
+  State(state): State<AppState>,
+  data: TypedMultipart<RenderEmlInput>,
+) -> AppResult<Response> {
   tracing::info!("Length of eml is {} bytes", data.eml.len());
 
   let result_receiver = match state.task_manager.enqueue_task(data.eml.clone()) {
     Ok(x) => x,
     Err(err) => match err {
       eml_task::EmlTaskEnqueueError::TaskQueueFull => {
-        return (StatusCode::SERVICE_UNAVAILABLE).into_response()
+        return Ok((StatusCode::SERVICE_UNAVAILABLE).into_response())
       }
     },
   };
 
-  let eml_result = match result_receiver.await {
-    Ok(r) => r,
-    Err(..) => return (StatusCode::INTERNAL_SERVER_ERROR).into_response(),
-  };
+  let eml_result = result_receiver.await?;
 
-  let raw_image = match eml_result {
-    Ok(i) => i,
-    Err(err) => {
-      tracing::error!("{:?}", err);
-      return (StatusCode::INTERNAL_SERVER_ERROR).into_response();
-    }
-  };
+  let raw_image = eml_result?;
 
   let headers = [(header::CONTENT_TYPE, "image/jpeg")];
 
@@ -145,7 +142,7 @@ async fn render_eml(State(state): State<AppState>, data: TypedMultipart<RenderEm
   .unwrap();
 
   tracing::info!("image encoded successfully!");
-  (headers, jpeg).into_response()
+  Ok((headers, jpeg).into_response())
 }
 
 async fn handle_live_queue_request(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
