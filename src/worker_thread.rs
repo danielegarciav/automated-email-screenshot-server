@@ -1,5 +1,3 @@
-#![allow(non_snake_case)]
-
 use anyhow::Context;
 use itertools::Itertools;
 use std::path::PathBuf;
@@ -33,6 +31,7 @@ struct ScrollEventHandler {
 }
 
 impl IUIAutomationPropertyChangedEventHandler_Impl for ScrollEventHandler {
+  #[allow(non_snake_case)]
   fn HandlePropertyChangedEvent(
     &self,
     _sender: Option<&IUIAutomationElement>,
