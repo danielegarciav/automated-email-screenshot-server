@@ -20,9 +20,8 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
   IUIAutomation, IUIAutomationElement, IUIAutomationPropertyChangedEventHandler,
-  IUIAutomationPropertyChangedEventHandler_Impl, TreeScope_Element,
-  UIA_ScrollPatternNoScroll as NoScroll, UIA_ScrollVerticalScrollPercentPropertyId,
-  UIA_PROPERTY_ID,
+  IUIAutomationPropertyChangedEventHandler_Impl, TreeScope_Element, UIA_ScrollPatternNoScroll as NoScroll,
+  UIA_ScrollVerticalScrollPercentPropertyId, UIA_PROPERTY_ID,
 };
 use windows::Win32::UI::HiDpi;
 

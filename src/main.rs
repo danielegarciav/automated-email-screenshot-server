@@ -39,8 +39,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "info,automation_test=debug,tower_http=debug,axum=debug".into()),
     )
     .with(
-      tracing_subscriber::fmt::layer()
-        .event_format(tracing_subscriber::fmt::format().with_line_number(true)),
+      tracing_subscriber::fmt::layer().event_format(tracing_subscriber::fmt::format().with_line_number(true)),
     )
     .init();
 
@@ -54,20 +53,10 @@ async fn main() -> anyhow::Result<()> {
   let app = Router::new()
     .route("/render-eml", post(render_eml))
     .route("/live-queue", get(handle_live_queue_request))
-    .layer(
-      TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
-        let path = request
-          .extensions()
-          .get::<MatchedPath>()
-          .map(MatchedPath::as_str);
-
-        info_span!(
-            "request",
-            method = ?request.method(),
-            path,
-        )
-      }),
-    )
+    .layer(TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
+      let path = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
+      info_span!("request", method = ?request.method(), path)
+    }))
     .layer(CorsLayer::new().allow_origin(cors::Any))
     .with_state(state);
 
@@ -90,10 +79,7 @@ struct RenderEmlInput {
   eml: Bytes,
 }
 
-async fn render_eml(
-  State(state): State<AppState>,
-  data: TypedMultipart<RenderEmlInput>,
-) -> Response {
+async fn render_eml(State(state): State<AppState>, data: TypedMultipart<RenderEmlInput>) -> Response {
   tracing::info!("Length of eml is {} bytes", data.eml.len());
 
   let result_receiver = match state.task_manager.enqueue_task(data.eml.clone()) {
@@ -162,10 +148,7 @@ async fn render_eml(
   (headers, jpeg).into_response()
 }
 
-async fn handle_live_queue_request(
-  State(state): State<AppState>,
-  ws: WebSocketUpgrade,
-) -> Response {
+async fn handle_live_queue_request(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
   ws.on_upgrade(|socket| handle_live_queue_socket(socket, state))
 }
 

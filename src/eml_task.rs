@@ -25,13 +25,8 @@ pub enum EmlTaskStatus {
   Enqueued,
   // Dropped,
   Started,
-  Failed {
-    failed_at: i64,
-  },
-  Completed {
-    completed_at: i64,
-    result_path: String,
-  },
+  Failed { failed_at: i64 },
+  Completed { completed_at: i64, result_path: String },
 }
 
 pub struct HandledEmlTask {
@@ -197,9 +192,7 @@ impl EmlTaskManager {
     let _ = self.updates_tx.send(EmlTaskEvent {
       task_id: task_id.to_string(),
       timestamp,
-      status: EmlTaskStatus::Failed {
-        failed_at: timestamp,
-      },
+      status: EmlTaskStatus::Failed { failed_at: timestamp },
     });
   }
 }
