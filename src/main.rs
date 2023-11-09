@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
   };
 
   let app = Router::new()
-    .route("/render-eml", post(render_eml))
+    .route("/render-eml", post(handle_eml_render_request))
     .route("/live-queue", get(handle_live_queue_request))
     .layer(TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
       let path = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
@@ -80,7 +80,7 @@ struct RenderEmlInput {
   eml: Bytes,
 }
 
-async fn render_eml(
+async fn handle_eml_render_request(
   State(state): State<AppState>,
   data: TypedMultipart<RenderEmlInput>,
 ) -> AppResult<Response> {
