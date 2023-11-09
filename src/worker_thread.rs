@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 
 use anyhow::Context;
+use itertools::Itertools;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, Condvar, Mutex};
@@ -149,28 +150,68 @@ pub fn start_worker_thread(
   }
 }
 
+fn close_existing_windows(automation: &UIAutomation) -> anyhow::Result<()> {
+  tracing::info!("finding existing windows...");
+  let existing_windows = automation
+    .create_matcher()
+    .name("Mail")
+    .timeout(200)
+    .control_type(ControlType::Window)
+    .find_all()
+    .or_else(|err| match err.code() {
+      // timeout finished with no results
+      2 => Ok(vec![]),
+      _ => Err(err),
+    })?;
+
+  if !existing_windows.is_empty() {
+    tracing::info!("terminating existing windows...");
+    let mut taskkill_args: Vec<String> = existing_windows
+      .into_iter()
+      .filter_map(|window| window.get_process_id().ok())
+      .unique()
+      .flat_map(|pid| ["/pid".to_string(), pid.to_string()])
+      .collect();
+    taskkill_args.push("/f".to_string());
+    if let Err(err) = Command::new("taskkill.exe").args(taskkill_args).status() {
+      tracing::warn!("failed to terminate existing windows, {:?}", err);
+    }
+  }
+  Ok(())
+}
+
 fn perform_email_screenshot(
   automation: &UIAutomation,
   eml_file_path: &PathBuf,
   scroll_event_handler: &IUIAutomationPropertyChangedEventHandler,
   scroll_sync_channel: &SyncChannel,
 ) -> anyhow::Result<DynamicImage> {
+  close_existing_windows(automation)?;
+
   tracing::info!("launching mail app...");
   Command::new("explorer.exe").arg(eml_file_path).status()?;
 
   tracing::info!("finding outer window...");
-  let outer_window_element = automation
+  let outer_window_element_vec = automation
     .create_matcher()
+    .control_type(ControlType::Window)
     .name("Mail")
     .timeout(10000)
-    .find_first()?;
+    .find_all()?;
+
+  let outer_window_element = outer_window_element_vec
+    .last()
+    .context("no outer windows found")?;
 
   tracing::info!("resizing outer window...");
   let outer_window_control: WindowControl = outer_window_element.try_into()?;
-  dbg!(outer_window_control.get_window_interaction_state()?);
-  outer_window_control.set_foregrand()?;
-  outer_window_control.normal()?;
-  outer_window_control.resize(1600.0, 1432.0)?;
+  if outer_window_control.get_window_interaction_state().is_err() {
+    tracing::warn!("failed to get window interaction state");
+  }
+  let _ = dbg!(outer_window_control.get_window_interaction_state());
+  // let _ = outer_window_control.set_foregrand()?;
+  let _ = outer_window_control.normal();
+  let _ = outer_window_control.resize(1600.0, 1432.0);
   thread::sleep(Duration::from_millis(1500));
 
   tracing::info!("finding inner window...");
@@ -178,6 +219,7 @@ fn perform_email_screenshot(
     .create_matcher()
     .name("Mail")
     .classname("Windows.UI.Core.CoreWindow")
+    .control_type(ControlType::Window)
     .timeout(10000)
     .find_first()?;
   let window_handle: HWND = window_element.get_native_window_handle()?.into();
@@ -323,6 +365,6 @@ fn perform_email_screenshot(
 
   unsafe { a.RemoveAllEventHandlers()? }
   tracing::info!("closing window now");
-  outer_window_control.close()?;
+  close_existing_windows(automation)?;
   Ok(stitched_image)
 }
