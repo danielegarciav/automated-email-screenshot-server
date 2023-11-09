@@ -122,11 +122,11 @@ fn perform_email_screenshot(
 
   tracing::info!("resizing outer window...");
   let outer_window_control: WindowControl = outer_window_element.try_into()?;
+  // some versions of Windows Mail won't interact with automation APIs until queried
+  // for interaction state, even if the query fails.
   if outer_window_control.get_window_interaction_state().is_err() {
     tracing::warn!("failed to get window interaction state");
   }
-  let _ = dbg!(outer_window_control.get_window_interaction_state());
-  // let _ = outer_window_control.set_foregrand()?;
   let _ = outer_window_control.normal();
   let _ = outer_window_control.resize(1600.0, 1432.0);
   thread::sleep(Duration::from_millis(1500));
