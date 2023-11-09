@@ -1,6 +1,7 @@
 #![allow(unused_attributes)]
 
 pub(crate) mod eml_task;
+mod graceful_shutdown;
 pub(crate) mod worker_thread;
 
 use axum::{
@@ -72,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
 
   axum::Server::bind(&addr)
     .serve(app.into_make_service())
+    .with_graceful_shutdown(graceful_shutdown::shutdown_signal())
     .await
     .unwrap();
 
