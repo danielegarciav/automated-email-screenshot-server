@@ -12,6 +12,7 @@ use win_screenshot::capture::capture_window_ex;
 
 use uiautomation::actions::{Scroll, Transform, Window};
 use uiautomation::controls::{ControlType, DocumentControl, WindowControl};
+use uiautomation::variants::Variant;
 use uiautomation::{UIAutomation, UIElement};
 
 use windows::Win32::Foundation::HWND;
@@ -38,9 +39,9 @@ impl IUIAutomationPropertyChangedEventHandler_Impl for ScrollEventHandler {
     _propertyid: UIA_PROPERTY_ID,
     newvalue: &VARIANT,
   ) -> ::windows::core::Result<()> {
-    let win_variant: variant_rs::VARIANT = unsafe { std::mem::transmute(newvalue.clone()) };
-    let rs_variant: variant_rs::Variant = win_variant.try_into().unwrap();
-    let new_scroll_value = rs_variant.expect_f64();
+    // wrap around native windows variant
+    let new_value_variant: Variant = newvalue.clone().into();
+    let new_scroll_value: f64 = new_value_variant.try_into().unwrap();
 
     let el: UIElement = _sender.unwrap().clone().into();
     let pid = el.get_process_id().unwrap();
