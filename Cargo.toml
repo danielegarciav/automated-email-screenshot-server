@@ -5,10 +5,19 @@ edition = "2021"
 
 [dependencies]
 anyhow = { version = "1.0.75", features = ["backtrace"] }
-axum = { version = "0.6.20", features = ["tracing", "multipart", "headers"] }
+axum = { version = "0.6.20", features = [
+  "tracing",
+  "multipart",
+  "headers",
+  "ws",
+] }
 axum_typed_multipart = "0.10.1"
+chrono = "0.4.31"
 image = "0.24.7"
 itertools = "0.11.0"
+nanoid = "0.4.0"
+serde = { version = "1.0.192", features = ["derive"] }
+serde_json = "1.0.108"
 stitchy-core = "0.1.0"
 tokio = { version = "1.33.0", features = ["full", "tracing"] }
 tokio-util = { version = "0.7.10", features = ["io", "io-util"] }

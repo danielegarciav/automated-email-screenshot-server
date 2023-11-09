@@ -26,7 +26,7 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::Win32::UI::HiDpi;
 
-use crate::eml_task::EmlTask;
+use crate::eml_task::EmlTaskManager;
 
 #[windows_implement::implement(IUIAutomationPropertyChangedEventHandler)]
 struct ScrollEventHandler {
@@ -103,9 +103,7 @@ impl SyncChannel {
   }
 }
 
-pub fn start_worker_thread(
-  mut task_receiver: tokio::sync::mpsc::Receiver<EmlTask>,
-) -> anyhow::Result<()> {
+pub fn start_worker_thread(task_manager: Arc<EmlTaskManager>) -> anyhow::Result<()> {
   init_dpi_awareness()?;
 
   let eml_directory = {
@@ -128,7 +126,8 @@ pub fn start_worker_thread(
   let com_event_handler: IUIAutomationPropertyChangedEventHandler = com_event_handler_alloc.into();
 
   loop {
-    match task_receiver.blocking_recv() {
+    tracing::info!("receiving next task...");
+    match task_manager.receive_next_task() {
       None => {
         tracing::warn!("task channel closed");
         return Ok(());
@@ -143,6 +142,10 @@ pub fn start_worker_thread(
           &com_event_handler,
           &scroll_sync_channel,
         );
+        match result {
+          Ok(..) => task_manager.report_task_completion(&task.id, "test path".to_string()),
+          Err(..) => task_manager.report_task_failure(&task.id),
+        }
         response.send(result).unwrap();
       }
     }

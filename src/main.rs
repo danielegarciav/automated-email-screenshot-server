@@ -6,14 +6,17 @@ pub(crate) mod worker_thread;
 
 use axum::{
   body::Bytes,
-  extract::{MatchedPath, State},
+  extract::{
+    ws::{Message, WebSocket, WebSocketUpgrade},
+    MatchedPath, State,
+  },
   http::{header, Request, StatusCode},
   response::{IntoResponse, Response},
-  routing::post,
+  routing::{get, post},
   Router,
 };
 use axum_typed_multipart::{TryFromMultipart, TypedMultipart};
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 use tower_http::cors::{self, CorsLayer};
 
 use tower_http::trace::TraceLayer;
@@ -21,23 +24,19 @@ use tracing::info_span;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::worker_thread::start_worker_thread;
-use eml_task::EmlTask;
-use tokio::sync::{mpsc, oneshot};
+use eml_task::EmlTaskManager;
 
 #[derive(Clone)]
 struct AppState {
-  task_sender: mpsc::Sender<EmlTask>,
+  task_manager: Arc<EmlTaskManager>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
   tracing_subscriber::registry()
     .with(
-      tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        // axum logs rejections from built-in extractors with the `axum::rejection`
-        // target, at `TRACE` level. `axum::rejection=trace` enables showing those events
-        "info,automation_test=debug,tower_http=debug,axum=debug".into()
-      }),
+      tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "info,automation_test=debug,tower_http=debug,axum=debug".into()),
     )
     .with(
       tracing_subscriber::fmt::layer()
@@ -45,12 +44,16 @@ async fn main() -> anyhow::Result<()> {
     )
     .init();
 
-  let (task_sender, task_receiver) = mpsc::channel(12);
-  let worker = std::thread::spawn(move || start_worker_thread(task_receiver));
-  let state = AppState { task_sender };
+  let task_manager = Arc::new(EmlTaskManager::new());
+  let worker_thread_task_manager = task_manager.clone();
+  let worker = std::thread::spawn(move || start_worker_thread(worker_thread_task_manager));
+  let state = AppState {
+    task_manager: task_manager.clone(),
+  };
 
   let app = Router::new()
     .route("/render-eml", post(render_eml))
+    .route("/live-queue", get(handle_live_queue_request))
     .layer(
       TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
         let path = request
@@ -77,6 +80,7 @@ async fn main() -> anyhow::Result<()> {
     .await
     .unwrap();
 
+  task_manager.signal_shutdown();
   worker.join().unwrap().unwrap();
   Ok(())
 }
@@ -92,23 +96,13 @@ async fn render_eml(
 ) -> Response {
   tracing::info!("Length of eml is {} bytes", data.eml.len());
 
-  let (result_sender, result_receiver) = oneshot::channel();
-
-  let task = EmlTask {
-    eml_content: data.eml.clone(),
-    response: result_sender,
-    span: Some(tracing::Span::current()),
-  };
-
-  if let Err(err) = state.task_sender.try_send(task) {
-    match err {
-      mpsc::error::TrySendError::Full(..) => {
+  let result_receiver = match state.task_manager.enqueue_task(data.eml.clone()) {
+    Ok(x) => x,
+    Err(err) => match err {
+      eml_task::EmlTaskEnqueueError::TaskQueueFull => {
         return (StatusCode::SERVICE_UNAVAILABLE).into_response()
       }
-      mpsc::error::TrySendError::Closed(..) => {
-        return (StatusCode::INTERNAL_SERVER_ERROR).into_response()
-      }
-    }
+    },
   };
 
   let eml_result = match result_receiver.await {
@@ -166,4 +160,36 @@ async fn render_eml(
 
   tracing::info!("image encoded successfully!");
   (headers, jpeg).into_response()
+}
+
+async fn handle_live_queue_request(
+  State(state): State<AppState>,
+  ws: WebSocketUpgrade,
+) -> Response {
+  ws.on_upgrade(|socket| handle_live_queue_socket(socket, state))
+}
+
+async fn handle_live_queue_socket(mut socket: WebSocket, state: AppState) {
+  _ = socket.send(Message::Text("hello".to_string())).await;
+  let mut receiver = state.task_manager.subscribe_to_updates();
+  loop {
+    match receiver.recv().await {
+      Ok(update) => {
+        if socket
+          .send(Message::Text(
+            serde_json::to_string(&update).unwrap_or("failed to serialize event".to_string()),
+          ))
+          .await
+          .is_err()
+        {
+          break;
+        };
+      }
+      Err(err) => {
+        let _ = socket.send(Message::Text(format!("error: {err:?}"))).await;
+        break;
+      }
+    };
+  }
+  _ = socket.close().await;
 }
