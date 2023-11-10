@@ -1,6 +1,7 @@
 mod app_result;
 pub(crate) mod eml_task;
 mod graceful_shutdown;
+mod logging;
 pub(crate) mod worker_thread;
 
 use app_result::AppResult;
@@ -18,14 +19,14 @@ use axum::{
 };
 use axum_typed_multipart::{TryFromMultipart, TypedMultipart};
 use std::{net::SocketAddr, sync::Arc};
-use tower_http::cors::{self, CorsLayer};
+use tower_http::{
+  cors::{self, CorsLayer},
+  trace::TraceLayer,
+};
 
-use tower_http::trace::TraceLayer;
-use tracing::info_span;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-use crate::worker_thread::start_worker_thread;
 use eml_task::EmlTaskManager;
+use logging::init_tracing;
+use worker_thread::start_worker_thread;
 
 #[derive(Clone)]
 struct AppState {
@@ -34,16 +35,7 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-  tracing_subscriber::registry()
-    .with(
-      tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "info,automation_test=debug,tower_http=debug,axum=debug".into()),
-    )
-    .with(
-      tracing_subscriber::fmt::layer().event_format(tracing_subscriber::fmt::format().with_line_number(true)),
-    )
-    .init();
-
+  init_tracing();
   let task_manager = Arc::new(EmlTaskManager::new());
   let worker_thread_task_manager = task_manager.clone();
   let worker = std::thread::spawn(move || start_worker_thread(worker_thread_task_manager));
@@ -56,7 +48,7 @@ async fn main() -> anyhow::Result<()> {
     .route("/live-queue", get(handle_live_queue_request))
     .layer(TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
       let path = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
-      info_span!("request", method = ?request.method(), path)
+      tracing::info_span!("request", method = ?request.method(), path)
     }))
     .layer(CorsLayer::new().allow_origin(cors::Any))
     .with_state(state);
