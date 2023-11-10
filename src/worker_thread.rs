@@ -19,7 +19,7 @@ use viewport_scroller::ViewportScroller;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::HiDpi;
 
-use crate::eml_task::EmlTaskManager;
+use crate::eml_task::{EmlTaskManager, EmlTaskStatus};
 
 fn init_dpi_awareness() -> anyhow::Result<()> {
   unsafe {
@@ -59,8 +59,13 @@ pub fn start_worker_thread(task_manager: Arc<EmlTaskManager>) -> anyhow::Result<
         std::fs::write(&eml_file_path, task.eml_content).unwrap();
         let result = perform_email_screenshot(&automation, &eml_file_path);
         match result {
-          Ok(..) => task_manager.report_task_completion(&task.id, "test path".to_string()),
-          Err(..) => task_manager.report_task_failure(&task.id),
+          Ok(..) => task_manager.report_task_status(
+            &task.id,
+            EmlTaskStatus::Completed {
+              result_path: "test path".to_string(),
+            },
+          ),
+          Err(..) => task_manager.report_task_status(&task.id, EmlTaskStatus::Failed),
         }
         response.send(result).unwrap();
       }

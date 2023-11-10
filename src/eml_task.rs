@@ -157,7 +157,7 @@ impl EmlTaskManager {
     self.updates_tx.subscribe()
   }
 
-  pub fn report_task_completion(&self, task_id: &str, result_path: String) {
+  pub fn report_task_status(&self, task_id: &str, status: EmlTaskStatus) {
     let timestamp = chrono::Utc::now().timestamp_millis();
     let mut guard = self.tasks.lock().unwrap();
     let task = guard
@@ -165,31 +165,12 @@ impl EmlTaskManager {
       .iter_mut()
       .find(|task| task.id == task_id)
       .unwrap();
-    task.status = EmlTaskStatus::Completed {
-      result_path: result_path.clone(),
-    };
+    task.status = status.clone();
     task.updated_at = timestamp;
     let _ = self.updates_tx.send(EmlTaskEvent {
       task_id: task_id.to_string(),
       timestamp,
-      status: EmlTaskStatus::Completed { result_path },
-    });
-  }
-
-  pub fn report_task_failure(&self, task_id: &str) {
-    let timestamp = chrono::Utc::now().timestamp_millis();
-    let mut guard = self.tasks.lock().unwrap();
-    let task = guard
-      .handled_tasks
-      .iter_mut()
-      .find(|task| task.id == task_id)
-      .unwrap();
-    task.status = EmlTaskStatus::Failed;
-    task.updated_at = timestamp;
-    let _ = self.updates_tx.send(EmlTaskEvent {
-      task_id: task_id.to_string(),
-      timestamp,
-      status: EmlTaskStatus::Failed,
+      status,
     });
   }
 }
