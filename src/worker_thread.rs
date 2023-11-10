@@ -59,7 +59,7 @@ pub fn start_worker_thread(task_manager: Arc<EmlTaskManager>) -> anyhow::Result<
         std::fs::write(&eml_file_path, task.eml_content).unwrap();
         let result = perform_email_screenshot(&automation, &eml_file_path);
         match result {
-          Ok(..) => task_manager.report_task_status(&task.id, EmlTaskStatus::Completed),
+          Ok(..) => task_manager.report_task_status(&task.id, EmlTaskStatus::Saving),
           Err(..) => task_manager.report_task_status(&task.id, EmlTaskStatus::Failed),
         }
         response.send(result).unwrap();

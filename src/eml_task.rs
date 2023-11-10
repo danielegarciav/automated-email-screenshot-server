@@ -26,6 +26,7 @@ pub enum EmlTaskStatus {
   // Dropped,
   Started,
   Failed,
+  Saving,
   Completed,
 }
 
@@ -74,7 +75,7 @@ impl EmlTaskManager {
   pub fn enqueue_task(
     &self,
     eml_content: Bytes,
-  ) -> Result<oneshot::Receiver<EmlTaskResult>, EmlTaskEnqueueError> {
+  ) -> Result<(String, oneshot::Receiver<EmlTaskResult>), EmlTaskEnqueueError> {
     let (result_sender, result_receiver) = oneshot::channel();
     let span = tracing::Span::current();
     let new_id = nanoid::nanoid!();
@@ -95,12 +96,12 @@ impl EmlTaskManager {
     drop(guard);
 
     let _ = self.updates_tx.send(EmlTaskEvent {
-      task_id: new_id,
+      task_id: new_id.clone(),
       timestamp,
       status: EmlTaskStatus::Enqueued,
     });
     self.cond_var.notify_all();
-    Ok(result_receiver)
+    Ok((new_id, result_receiver))
   }
 
   /// Returns the next enqueued task, blocks until there's a new one if there's none yet.

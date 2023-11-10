@@ -77,7 +77,7 @@ async fn handle_eml_render_request(
   data: TypedMultipart<RenderEmlInput>,
 ) -> AppResult<Response> {
   tracing::info!("Length of eml is {} bytes", data.eml.len());
-  let result_receiver = match state.task_manager.enqueue_task(data.eml.clone()) {
+  let (task_id, result_receiver) = match state.task_manager.enqueue_task(data.eml.clone()) {
     Ok(x) => x,
     Err(err) => match err {
       eml_task::EmlTaskEnqueueError::TaskQueueFull => {
@@ -102,6 +102,9 @@ async fn handle_eml_render_request(
   .unwrap();
 
   tracing::info!("image encoded successfully!");
+  state
+    .task_manager
+    .report_task_status(&task_id, eml_task::EmlTaskStatus::Completed);
   Ok((headers, jpeg).into_response())
 }
 
