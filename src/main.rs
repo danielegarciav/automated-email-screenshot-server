@@ -22,6 +22,7 @@ use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::oneshot;
 use tower_http::{
   cors::{self, CorsLayer},
+  services::ServeDir,
   trace::TraceLayer,
 };
 use tracing::Instrument;
@@ -51,6 +52,7 @@ async fn main() -> anyhow::Result<()> {
     .route("/render-eml", post(handle_eml_render_request))
     .route("/render-eml-async", post(handle_async_eml_render_request))
     .route("/live-queue", get(handle_live_queue_request))
+    .nest_service("/output", ServeDir::new("output"))
     .layer(TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
       let path = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
       tracing::info_span!("request", method = ?request.method(), path)
