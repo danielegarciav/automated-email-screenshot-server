@@ -122,15 +122,10 @@ async fn handle_live_queue_socket(mut socket: WebSocket, state: AppState) {
   loop {
     match receiver.recv().await {
       Ok(update) => {
-        if socket
-          .send(Message::Text(
-            serde_json::to_string(&update).unwrap_or("failed to serialize event".to_string()),
-          ))
-          .await
-          .is_err()
-        {
+        let message = serde_json::to_string(&update).unwrap_or("failed to serialize event".to_string());
+        if socket.send(Message::Text(message)).await.is_err() {
           break;
-        };
+        }
       }
       Err(err) => {
         let _ = socket.send(Message::Text(format!("error: {err:?}"))).await;
