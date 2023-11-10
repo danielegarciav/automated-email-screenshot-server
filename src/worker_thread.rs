@@ -50,7 +50,7 @@ pub fn start_worker_thread(task_manager: Arc<EmlTaskManager>) -> anyhow::Result<
     tracing::info!("receiving next task...");
     match task_manager.receive_next_task() {
       None => {
-        tracing::warn!("task channel closed");
+        tracing::info!("task channel closed, exiting thread...");
         return Ok(());
       }
       Some(task) => {
