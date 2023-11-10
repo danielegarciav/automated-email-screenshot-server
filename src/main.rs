@@ -19,14 +19,18 @@ use axum::{
 };
 use axum_typed_multipart::{TryFromMultipart, TypedMultipart};
 use std::{net::SocketAddr, sync::Arc};
+use tokio::sync::oneshot;
 use tower_http::{
   cors::{self, CorsLayer},
   trace::TraceLayer,
 };
+use tracing::Instrument;
 
-use eml_task::EmlTaskManager;
+use eml_task::{EmlTaskManager, EmlTaskResult};
 use logging::init_tracing;
 use worker_thread::start_worker_thread;
+
+use crate::eml_task::EmlTaskStatus;
 
 #[derive(Clone)]
 struct AppState {
@@ -45,6 +49,7 @@ async fn main() -> anyhow::Result<()> {
 
   let app = Router::new()
     .route("/render-eml", post(handle_eml_render_request))
+    .route("/render-eml-async", post(handle_async_eml_render_request))
     .route("/live-queue", get(handle_live_queue_request))
     .layer(TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
       let path = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
@@ -106,6 +111,68 @@ async fn handle_eml_render_request(
     .task_manager
     .report_task_status(&task_id, eml_task::EmlTaskStatus::Completed);
   Ok((headers, jpeg).into_response())
+}
+
+async fn continue_task_in_background(
+  task_id: &str,
+  result_receiver: oneshot::Receiver<EmlTaskResult>,
+) -> anyhow::Result<()> {
+  let eml_result = result_receiver.await?;
+  let raw_image = eml_result?;
+  tracing::info!("encoding image...");
+  let span = tracing::Span::current();
+  let jpeg = tokio::task::spawn_blocking(move || {
+    let _span_guard = span.enter();
+    let mut buf = Vec::new();
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 50);
+    raw_image.write_with_encoder(encoder).unwrap();
+    buf
+  })
+  .await
+  .unwrap();
+  tracing::info!("image encoded successfully! saving to disk...");
+  tokio::fs::DirBuilder::new()
+    .recursive(true)
+    .create("output")
+    .await?;
+  tokio::fs::write(format!("output/{task_id}.jpg"), jpeg).await?;
+  Ok(())
+}
+
+async fn handle_async_eml_render_request(
+  State(state): State<AppState>,
+  data: TypedMultipart<RenderEmlInput>,
+) -> AppResult<Response> {
+  tracing::info!("Length of eml is {} bytes", data.eml.len());
+  let (task_id, result_receiver) = match state.task_manager.enqueue_task(data.eml.clone()) {
+    Ok(x) => x,
+    Err(err) => match err {
+      eml_task::EmlTaskEnqueueError::TaskQueueFull => {
+        return Ok((StatusCode::SERVICE_UNAVAILABLE).into_response())
+      }
+    },
+  };
+
+  tokio::spawn(
+    async move {
+      match continue_task_in_background(&task_id, result_receiver).await {
+        Ok(..) => {
+          tracing::info!("background task completed");
+          state
+            .task_manager
+            .report_task_status(&task_id, EmlTaskStatus::Completed)
+        }
+        Err(err) => {
+          tracing::error!("background task failed: {:?}", err);
+          state
+            .task_manager
+            .report_task_status(&task_id, EmlTaskStatus::Failed)
+        }
+      }
+    }
+    .instrument(tracing::Span::current()),
+  );
+  Ok(().into_response())
 }
 
 async fn handle_live_queue_request(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
