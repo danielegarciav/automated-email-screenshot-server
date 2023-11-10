@@ -25,14 +25,15 @@ pub enum EmlTaskStatus {
   Enqueued,
   // Dropped,
   Started,
-  Failed { failed_at: i64 },
-  Completed { completed_at: i64, result_path: String },
+  Failed,
+  Completed { result_path: String },
 }
 
 pub struct HandledEmlTask {
   pub id: String,
   pub enqueued_at: i64,
   pub started_at: i64,
+  pub updated_at: i64,
   pub status: EmlTaskStatus,
 }
 
@@ -111,6 +112,7 @@ impl EmlTaskManager {
         id: task.id.clone(),
         enqueued_at: task.enqueued_at,
         started_at,
+        updated_at: started_at,
         status: EmlTaskStatus::Started,
       };
       guard.handled_tasks.push(handled_task);
@@ -164,17 +166,13 @@ impl EmlTaskManager {
       .find(|task| task.id == task_id)
       .unwrap();
     task.status = EmlTaskStatus::Completed {
-      completed_at: chrono::Utc::now().timestamp_millis(),
       result_path: result_path.clone(),
     };
-
+    task.updated_at = timestamp;
     let _ = self.updates_tx.send(EmlTaskEvent {
       task_id: task_id.to_string(),
       timestamp,
-      status: EmlTaskStatus::Completed {
-        completed_at: timestamp,
-        result_path,
-      },
+      status: EmlTaskStatus::Completed { result_path },
     });
   }
 
@@ -186,13 +184,12 @@ impl EmlTaskManager {
       .iter_mut()
       .find(|task| task.id == task_id)
       .unwrap();
-    task.status = EmlTaskStatus::Failed {
-      failed_at: chrono::Utc::now().timestamp_millis(),
-    };
+    task.status = EmlTaskStatus::Failed;
+    task.updated_at = timestamp;
     let _ = self.updates_tx.send(EmlTaskEvent {
       task_id: task_id.to_string(),
       timestamp,
-      status: EmlTaskStatus::Failed { failed_at: timestamp },
+      status: EmlTaskStatus::Failed,
     });
   }
 }
