@@ -13,11 +13,12 @@ use axum::{
     MatchedPath, State,
   },
   http::{header, Request, StatusCode},
-  response::{IntoResponse, Response},
+  response::{IntoResponse, Json, Response},
   routing::{get, post},
   Router,
 };
 use axum_typed_multipart::{TryFromMultipart, TypedMultipart};
+use serde_json::json;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::oneshot;
 use tower_http::{
@@ -154,7 +155,7 @@ async fn handle_async_eml_render_request(
       }
     },
   };
-
+  let json_response = Json(json!({ "id": task_id.clone() }));
   tokio::spawn(
     async move {
       match continue_task_in_background(&task_id, result_receiver).await {
@@ -174,7 +175,7 @@ async fn handle_async_eml_render_request(
     }
     .instrument(tracing::Span::current()),
   );
-  Ok(().into_response())
+  Ok(json_response.into_response())
 }
 
 async fn handle_live_queue_request(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
