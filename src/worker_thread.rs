@@ -47,7 +47,7 @@ pub fn start_worker_thread(task_manager: Arc<EmlTaskManager>) -> anyhow::Result<
   let automation = UIAutomation::new()?;
 
   loop {
-    tracing::info!("receiving next task...");
+    tracing::info!("waiting for next task...");
     match task_manager.receive_next_task() {
       None => {
         tracing::info!("task channel closed, exiting thread...");
