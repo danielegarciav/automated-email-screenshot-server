@@ -118,7 +118,6 @@ async fn handle_live_queue_request(State(state): State<AppState>, ws: WebSocketU
 }
 
 async fn handle_live_queue_socket(mut socket: WebSocket, state: AppState) {
-  _ = socket.send(Message::Text("hello".to_string())).await;
   let mut receiver = state.task_manager.subscribe_to_updates();
   loop {
     match receiver.recv().await {
