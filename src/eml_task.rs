@@ -26,7 +26,7 @@ pub enum EmlTaskStatus {
   // Dropped,
   Started,
   Failed,
-  Completed { result_path: String },
+  Completed,
 }
 
 pub struct HandledEmlTask {
