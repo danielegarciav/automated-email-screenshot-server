@@ -70,7 +70,6 @@ pub fn start_worker_thread(task_manager: Arc<EmlTaskManager>) -> anyhow::Result<
 }
 
 fn close_existing_windows(automation: &UIAutomation) -> anyhow::Result<()> {
-  tracing::info!("finding existing windows...");
   let existing_windows = automation
     .create_matcher()
     .name("Mail")
@@ -266,7 +265,6 @@ fn perform_email_screenshot(
     .stitch()
     .map_err(|msg| anyhow::anyhow!(msg))?;
 
-  tracing::info!("closing window now");
   drop(viewport_scroller);
   close_existing_windows(automation)?;
   Ok(stitched_image)
