@@ -109,7 +109,12 @@ async fn handle_eml_render_request(
   .await
   .unwrap();
 
-  tracing::info!("image encoded successfully!");
+  tracing::info!("image encoded successfully! saving to disk...");
+  tokio::fs::DirBuilder::new()
+    .recursive(true)
+    .create("output")
+    .await?;
+  tokio::fs::write(format!("output/{task_id}.jpg"), &jpeg).await?;
   state
     .task_manager
     .report_task_status(&task_id, eml_task::EmlTaskStatus::Completed);
