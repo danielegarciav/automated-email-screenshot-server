@@ -88,9 +88,9 @@ fn close_existing_windows(automation: &UIAutomation) -> anyhow::Result<()> {
       .into_iter()
       .filter_map(|window| window.get_process_id().ok())
       .unique()
-      .flat_map(|pid| ["/pid".to_string(), pid.to_string()])
+      .flat_map(|pid| [String::from("/pid"), pid.to_string()])
       .collect();
-    taskkill_args.push("/f".to_string());
+    taskkill_args.push(String::from("/f"));
     if let Err(err) = Command::new("taskkill.exe").args(taskkill_args).status() {
       tracing::warn!("failed to terminate existing windows, {:?}", err);
     }

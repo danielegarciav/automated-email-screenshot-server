@@ -192,7 +192,7 @@ async fn handle_live_queue_socket(mut socket: WebSocket, state: AppState) {
   loop {
     match receiver.recv().await {
       Ok(update) => {
-        let message = serde_json::to_string(&update).unwrap_or("failed to serialize event".to_string());
+        let message = serde_json::to_string(&update).unwrap_or(String::from("failed to serialize event"));
         if socket.send(Message::Text(message)).await.is_err() {
           break;
         }
