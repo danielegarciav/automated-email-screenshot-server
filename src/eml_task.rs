@@ -168,6 +168,7 @@ impl EmlTaskManager {
       .unwrap();
     task.status = status.clone();
     task.updated_at = timestamp;
+    drop(guard);
     let _ = self.updates_tx.send(EmlTaskEvent {
       task_id: String::from(task_id),
       timestamp,
