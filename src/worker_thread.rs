@@ -101,7 +101,7 @@ fn close_existing_windows(automation: &UIAutomation) -> anyhow::Result<()> {
 fn perform_email_screenshot(
   automation: &UIAutomation,
   eml_file_path: &PathBuf,
-) -> anyhow::Result<DynamicImage> {
+) -> anyhow::Result<Vec<DynamicImage>> {
   close_existing_windows(automation)?;
 
   tracing::info!("launching mail app...");
@@ -257,15 +257,7 @@ fn perform_email_screenshot(
     }
   }
 
-  tracing::info!("stitching...");
-  let stitched_image = stitchy_core::Stitch::builder()
-    .images(captures)
-    .alignment(stitchy_core::AlignmentMode::Vertical)
-    .height_limit(4096)
-    .stitch()
-    .map_err(|msg| anyhow::anyhow!(msg))?;
-
   drop(viewport_scroller);
   close_existing_windows(automation)?;
-  Ok(stitched_image)
+  Ok(captures)
 }

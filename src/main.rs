@@ -94,8 +94,16 @@ async fn handle_eml_render_request(
     },
   };
   let eml_result = result_receiver.await?;
-  let raw_image = eml_result?;
+  let captures = eml_result?;
   let headers = [(header::CONTENT_TYPE, "image/jpeg")];
+
+  tracing::info!("stitching...");
+  let raw_image = stitchy_core::Stitch::builder()
+    .images(captures)
+    .alignment(stitchy_core::AlignmentMode::Vertical)
+    .height_limit(4096)
+    .stitch()
+    .map_err(|msg| anyhow::anyhow!(msg))?;
 
   tracing::info!("encoding image...");
   let span = tracing::Span::current();
@@ -126,7 +134,16 @@ async fn continue_task_in_background(
   result_receiver: oneshot::Receiver<EmlTaskResult>,
 ) -> anyhow::Result<()> {
   let eml_result = result_receiver.await?;
-  let raw_image = eml_result?;
+  let captures = eml_result?;
+
+  tracing::info!("stitching...");
+  let raw_image = stitchy_core::Stitch::builder()
+    .images(captures)
+    .alignment(stitchy_core::AlignmentMode::Vertical)
+    .height_limit(4096)
+    .stitch()
+    .map_err(|msg| anyhow::anyhow!(msg))?;
+
   tracing::info!("encoding image...");
   let span = tracing::Span::current();
   let jpeg = tokio::task::spawn_blocking(move || {

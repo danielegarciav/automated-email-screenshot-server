@@ -17,7 +17,7 @@ pub struct EmlTask {
   pub span: Option<Span>,
 }
 
-pub type EmlTaskResult = anyhow::Result<image::DynamicImage>;
+pub type EmlTaskResult = anyhow::Result<Vec<image::DynamicImage>>;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
