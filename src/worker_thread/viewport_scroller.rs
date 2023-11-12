@@ -100,6 +100,7 @@ pub struct ViewportScroller<'a> {
   // could accidentally prevent their backing memory from being released long after they're no longer used.
   phantom: PhantomData<(&'a UIAutomation, &'a UIElement)>,
   win_automation: IUIAutomation,
+  win_element: IUIAutomationElement,
   viewport_control: DocumentControl,
 }
 
@@ -123,6 +124,7 @@ impl<'a> ViewportScroller<'a> {
     Self {
       phantom: PhantomData,
       win_automation,
+      win_element,
       viewport_control,
     }
   }
@@ -139,6 +141,11 @@ impl<'a> ViewportScroller<'a> {
 
 impl<'a> Drop for ViewportScroller<'a> {
   fn drop(&mut self) {
-    unsafe { self.win_automation.RemoveAllEventHandlers().unwrap() }
+    SCROLL_EVENT_HANDLER.with(|scroll_event_handler| unsafe {
+      self
+        .win_automation
+        .RemovePropertyChangedEventHandler(&self.win_element, scroll_event_handler.get().unwrap())
+        .unwrap();
+    });
   }
 }
