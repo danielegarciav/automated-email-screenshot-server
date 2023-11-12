@@ -32,7 +32,7 @@ use eml_task::{EmlTaskManager, EmlTaskResult};
 use logging::init_tracing;
 use worker_thread::start_worker_thread;
 
-use crate::eml_task::EmlTaskStatus;
+use crate::eml_task::{EmlTaskProcessingStep, EmlTaskStatus};
 
 #[derive(Clone)]
 struct AppState {
@@ -97,6 +97,13 @@ async fn handle_eml_render_request(
   let captures = eml_result?;
   let headers = [(header::CONTENT_TYPE, "image/jpeg")];
 
+  state.task_manager.report_task_status(
+    &task_id,
+    eml_task::EmlTaskStatus::Processing {
+      step: EmlTaskProcessingStep::Stitching,
+    },
+  );
+
   tracing::info!("stitching...");
   let raw_image = stitchy_core::Stitch::builder()
     .images(captures)
@@ -104,6 +111,13 @@ async fn handle_eml_render_request(
     .height_limit(4096)
     .stitch()
     .map_err(|msg| anyhow::anyhow!(msg))?;
+
+  state.task_manager.report_task_status(
+    &task_id,
+    eml_task::EmlTaskStatus::Processing {
+      step: EmlTaskProcessingStep::Saving,
+    },
+  );
 
   tracing::info!("encoding image...");
   let span = tracing::Span::current();
@@ -130,11 +144,19 @@ async fn handle_eml_render_request(
 }
 
 async fn continue_task_in_background(
+  state: &AppState,
   task_id: &str,
   result_receiver: oneshot::Receiver<EmlTaskResult>,
 ) -> anyhow::Result<()> {
   let eml_result = result_receiver.await?;
   let captures = eml_result?;
+
+  state.task_manager.report_task_status(
+    task_id,
+    eml_task::EmlTaskStatus::Processing {
+      step: EmlTaskProcessingStep::Stitching,
+    },
+  );
 
   tracing::info!("stitching...");
   let raw_image = stitchy_core::Stitch::builder()
@@ -143,6 +165,13 @@ async fn continue_task_in_background(
     .height_limit(4096)
     .stitch()
     .map_err(|msg| anyhow::anyhow!(msg))?;
+
+  state.task_manager.report_task_status(
+    task_id,
+    eml_task::EmlTaskStatus::Processing {
+      step: EmlTaskProcessingStep::Saving,
+    },
+  );
 
   tracing::info!("encoding image...");
   let span = tracing::Span::current();
@@ -180,7 +209,7 @@ async fn handle_async_eml_render_request(
   let json_response = Json(json!({ "id": task_id.clone() }));
   tokio::spawn(
     async move {
-      match continue_task_in_background(&task_id, result_receiver).await {
+      match continue_task_in_background(&state, &task_id, result_receiver).await {
         Ok(..) => {
           tracing::info!("background task completed");
           state

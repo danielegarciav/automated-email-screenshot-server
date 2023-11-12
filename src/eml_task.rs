@@ -20,13 +20,20 @@ pub struct EmlTask {
 pub type EmlTaskResult = anyhow::Result<Vec<image::DynamicImage>>;
 
 #[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EmlTaskProcessingStep {
+  Screenshotting,
+  Stitching,
+  Saving,
+}
+
+#[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum EmlTaskStatus {
   Enqueued,
   // Dropped,
-  Started,
+  Processing { step: EmlTaskProcessingStep },
   Failed,
-  Saving,
   Completed,
 }
 
@@ -108,13 +115,16 @@ impl EmlTaskManager {
   /// Returns `None` if application is shutting down.
   pub fn receive_next_task(&self) -> Option<EmlTask> {
     let handle_task = |mut guard: MutexGuard<'_, TaskList>, task: EmlTask| -> EmlTask {
+      let status = EmlTaskStatus::Processing {
+        step: EmlTaskProcessingStep::Screenshotting,
+      };
       let started_at = chrono::Utc::now().timestamp_millis();
       let handled_task = HandledEmlTask {
         id: task.id.clone(),
         enqueued_at: task.enqueued_at,
         started_at,
         updated_at: started_at,
-        status: EmlTaskStatus::Started,
+        status: status.clone(),
       };
       guard.handled_tasks.push(handled_task);
       drop(guard);
@@ -122,7 +132,7 @@ impl EmlTaskManager {
       let _ = self.updates_tx.send(EmlTaskEvent {
         task_id: task.id.clone(),
         timestamp: started_at,
-        status: EmlTaskStatus::Started,
+        status,
       });
       task
     };
